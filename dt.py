@@ -98,7 +98,7 @@ def classify_dt(training_filename, testing_filename):
         test_set = [row for row in reader]
 
     attr_indices = list(range(len(train_set[0][0])))
-    
+
     # Training
     tree = build_tree(train_set, attr_indices, train_set)
 
@@ -107,3 +107,10 @@ def classify_dt(training_filename, testing_filename):
     for instance in test_set:
         results.append(classify_one(tree, instance))
     return results
+
+
+def classify_dt_local(train_folds, test_fold):
+    train_set = [(row[:-1], row[-1]) for row in train_folds]
+    attr_indices = list(range(len(train_set[0][0])))
+    tree = build_tree(train_set, attr_indices, train_set)
+    return [classify_one(tree, instance[:-1]) for instance in test_fold]

@@ -1,6 +1,7 @@
 import csv
 import math
 import random
+from collections import Counter
 
 
 def entropy(examples):
@@ -89,9 +90,9 @@ def print_tree(tree, indent=""):
         print_tree(subtree, indent + "  ")
 
 
-# KNN+: Information-gain-weighted distance + inverse-distance voting + LOOCV k
+# KNN+: Information-gain-weighted distance + majority voting
 
-def classify_knn_plus(training_filename, testing_filename):
+def classify_knn_plus(training_filename, testing_filename, k):
     with open(training_filename, "r") as f:
         train_set = [(row[:-1], row[-1]) for row in csv.reader(f)]
 
@@ -109,53 +110,42 @@ def classify_knn_plus(training_filename, testing_filename):
     def wdist(a, b):
         return sum(attr_weights[i] for i in range(n_attrs) if a[i] != b[i])
 
-    # Precompute sorted distances for LOOCV
-    n = len(train_set)
-    all_sorted = []
-    for i in range(n):
-        
-        dists = []
-        for j in range(n):
-            if i != j:
-                dists.append((wdist(train_set[i][0], train_set[j][0]), train_set[j][1]))
-        dists.sort(key=lambda x: x[0])
-        all_sorted.append(dists)
-
-    # LOOCV to pick best k
-    best_k, best_acc = 5, -1
-    for k in range(1, 20, 2):
-        correct = 0
-        for i in range(n):
-            neighbors = all_sorted[i][:k]
-            votes = {}
-            for d, lbl in neighbors:
-                w = 1.0 / (d + 1e-10)
-                votes[lbl] = votes.get(lbl, 0) + w
-            pred = max(votes, key=lambda c: (votes[c], c == "died"))
-            if pred == train_set[i][1]:
-                correct += 1
-        acc = correct / n
-        if acc > best_acc:
-            best_acc = acc
-            best_k = k
-
-    # Classify test set
     results = []
     for instance in test_set:
         test_attrs = instance[:n_attrs]
-        dists = sorted(
-            ((wdist(test_attrs, attrs), label) for attrs, label in train_set),
-            key=lambda x: x[0],
-        )
-        neighbors = dists[:best_k]
-        votes = {}
-        for d, lbl in neighbors:
-            w = 1.0 / (d + 1e-10)
-            votes[lbl] = votes.get(lbl, 0) + w
-        pred = max(votes, key=lambda c: (votes[c], c == "died"))
-        results.append(pred)
+        neighbours = sorted(train_set, key=lambda t: wdist(test_attrs, t[0]))[:k]
+        votes = Counter(label for _, label in neighbours)
+        top = votes.most_common()
+        if len(top) > 1 and top[0][1] == top[1][1]:
+            results.append("died")
+        else:
+            results.append(top[0][0])
     return results
 
+
+def classify_knn_plus_local(train_folds, test_fold, k):
+    train_set = [(row[:-1], row[-1]) for row in train_folds]
+
+    n_attrs = len(train_set[0][0])
+    attr_weights = [info_gain(train_set, i) for i in range(n_attrs)]
+    total_w = sum(attr_weights)
+    if total_w > 0:
+        attr_weights = [w / total_w for w in attr_weights]
+
+    def wdist(a, b):
+        return sum(attr_weights[i] for i in range(n_attrs) if a[i] != b[i])
+
+    results = []
+    for instance in test_fold:
+        test_attrs = instance[:-1]
+        neighbours = sorted(train_set, key=lambda t: wdist(test_attrs, t[0]))[:k]
+        votes = Counter(label for _, label in neighbours)
+        top = votes.most_common()
+        if len(top) > 1 and top[0][1] == top[1][1]:
+            results.append("died")
+        else:
+            results.append(top[0][0])
+    return results
 
 
 # DT+: Gain Ratio (C4.5) + Reduced Error Pruning
@@ -261,3 +251,24 @@ def classify_dt_plus(training_filename, testing_filename):
     for instance in test_set:
         results.append(classify_one(tree, instance))
     return results
+
+
+def classify_dt_plus_local(train_folds, test_fold):
+    data = [(row[:-1], row[-1]) for row in train_folds]
+
+    rng = random.Random(42)
+    died = [x for x in data if x[1] == "died"]
+    survived = [x for x in data if x[1] == "survived"]
+    rng.shuffle(died)
+    rng.shuffle(survived)
+
+    split_d = int(0.8 * len(died))
+    split_s = int(0.8 * len(survived))
+    train = died[:split_d] + survived[:split_s]
+    val = died[split_d:] + survived[split_s:]
+
+    attr_indices = list(range(len(data[0][0])))
+    tree = build_tree_plus(train, attr_indices, train)
+    tree = prune_tree(tree, val)
+
+    return [classify_one(tree, instance[:-1]) for instance in test_fold]

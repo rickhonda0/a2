@@ -9,6 +9,7 @@ def read_data(data_filename):
 
 def cv(data_filename, n_folds):
     data = read_data(data_filename)
+    n = len(data)
 
     # Group by class label
     groups = {}
@@ -41,7 +42,7 @@ def cv(data_filename, n_folds):
     #             f.write("\n")
 
     #         f.write("\n")
-    return folds
+    return folds, n
     
 
 if __name__ == "__main__":
